@@ -31,7 +31,6 @@ const (
 	adminUser                                  = "Administrator@vsphere.local"
 	apiServerIPs                               = "API_SERVER_IPS"
 	attacherContainerName                      = "csi-attacher"
-	busyBoxImageOnGcr                          = "harbor-repo.vmware.com/csi/busybox:1.35"
 	nginxImage                                 = "registry.k8s.io/nginx-slim:0.26"
 	nginxImage4upg                             = "registry.k8s.io/nginx-slim:0.27"
 	configSecret                               = "vsphere-config-secret"
@@ -234,6 +233,11 @@ var (
 	wcpVsanDirectCluster bool
 )
 
+// For busybox pod image
+var (
+	busyBoxImageOnGcr = "busybox"
+)
+
 // For VCP to CSI migration tests.
 var (
 	envSharedDatastoreName          = "SHARED_VSPHERE_DATASTORE_NAME"
@@ -260,11 +264,6 @@ var (
 	configSecretTestUser2Password = "VMware!234"
 	configSecretTestUser1         = "testuser1"
 	configSecretTestUser2         = "testuser2"
-)
-
-// CSI Internal FSSs
-var (
-	useCsiNodeID = "use-csinode-id"
 )
 
 // Nimbus generated passwords

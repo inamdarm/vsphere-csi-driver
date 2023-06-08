@@ -155,7 +155,6 @@ data:
   "async-query-volume": "true"
   "block-volume-snapshot": "true"
   "csi-windows-support": "true"
-  "use-csinode-id": "true"
   "list-volumes": "true"
   "pv-to-backingdiskobjectid-mapping": "false"
   "cnsmgr-suspend-create-volume": "true"
@@ -163,7 +162,7 @@ data:
   "max-pvscsi-targets-per-vm": "true"
   "multi-vcenter-csi-topology": "true"
   "csi-internal-generated-cluster-id": "true"
-  "listview-tasks": "false"
+  "listview-tasks": "true"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
