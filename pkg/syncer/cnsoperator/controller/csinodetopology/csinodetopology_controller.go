@@ -110,7 +110,6 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		}
 	}
 
-	useNodeUuid := coCommonInterface.IsFSSEnabled(ctx, common.UseCSINodeId)
 	isMultiVCFSSEnabled := coCommonInterface.IsFSSEnabled(ctx, common.MultiVCenterCSITopology)
 	// Initialize kubernetes client.
 	k8sclient, err := k8s.NewClient(ctx)
@@ -128,20 +127,19 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	)
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme,
 		corev1.EventSource{Component: csinodetopologyv1alpha1.GroupName})
-	return add(mgr, newReconciler(mgr, configInfo, recorder, useNodeUuid,
+	return add(mgr, newReconciler(mgr, configInfo, recorder,
 		enableTKGsHAinGuest, isMultiVCFSSEnabled, vmOperatorClient, supervisorNamespace))
 }
 
 // newReconciler returns a new `reconcile.Reconciler`.
 func newReconciler(mgr manager.Manager, configInfo *cnsconfig.ConfigurationInfo, recorder record.EventRecorder,
-	useNodeUuid bool, enableTKGsHAinGuest bool, isMultiVCFSSEnabled bool, vmOperatorClient client.Client,
+	enableTKGsHAinGuest bool, isMultiVCFSSEnabled bool, vmOperatorClient client.Client,
 	supervisorNamespace string) reconcile.Reconciler {
 	return &ReconcileCSINodeTopology{
 		client:              mgr.GetClient(),
 		scheme:              mgr.GetScheme(),
 		configInfo:          configInfo,
 		recorder:            recorder,
-		useNodeUuid:         useNodeUuid,
 		enableTKGsHAinGuest: enableTKGsHAinGuest,
 		isMultiVCFSSEnabled: isMultiVCFSSEnabled,
 		vmOperatorClient:    vmOperatorClient,
@@ -173,8 +171,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 			// The CO calls NodeGetInfo API just once during the node registration,
 			// therefore we do not support updates to the spec after the CR has
 			// been reconciled.
-			log.Debug("Ignoring CSINodeTopology reconciliation on update event")
-			return false
+			return true
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
 			// Instances are deleted by the garbage collector automatically after
@@ -208,7 +205,6 @@ type ReconcileCSINodeTopology struct {
 	scheme              *runtime.Scheme
 	configInfo          *cnsconfig.ConfigurationInfo
 	recorder            record.EventRecorder
-	useNodeUuid         bool
 	enableTKGsHAinGuest bool
 	isMultiVCFSSEnabled bool
 	vmOperatorClient    client.Client
@@ -273,7 +269,7 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	if r.useNodeUuid && clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		nodeID = instance.Spec.NodeUUID
 		if nodeID != "" {
 			nodeVM, err = nodeManager.GetNode(ctx, nodeID, nil)
@@ -296,11 +292,10 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	// Retrieve topology labels for nodeVM.
-	if r.configInfo.Cfg.Labels.TopologyCategories == "" &&
-		r.configInfo.Cfg.Labels.Zone == "" && r.configInfo.Cfg.Labels.Region == "" {
+	if !r.isTopologyEnabled() {
 		// Not a topology aware setup.
 		// Set the Status to Success and return.
+		log.Infof("Skipping topology update, topolgogy feature is disabled")
 		instance.Status.TopologyLabels = make([]csinodetopologyv1alpha1.TopologyLabel, 0)
 		err = updateCRStatus(ctx, r, instance, csinodetopologyv1alpha1.CSINodeTopologySuccess,
 			"Not a topology aware cluster.")
@@ -310,6 +305,15 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 	} else if r.configInfo.Cfg.Labels.TopologyCategories != "" ||
 		(r.configInfo.Cfg.Labels.Zone != "" && r.configInfo.Cfg.Labels.Region != "") {
 		log.Infof("Detected a topology aware cluster")
+
+		if len(instance.Status.TopologyLabels) > 0 {
+			log.Infof("Found existing topology")
+			err = updateCRStatus(ctx, r, instance, csinodetopologyv1alpha1.CSINodeTopologySuccess,
+				"found existing topology.")
+			if err != nil {
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+		}
 
 		// Fetch topology labels for nodeVM.
 		topologyLabels, err := getNodeTopologyInfo(ctx, nodeVM, r.configInfo.Cfg, r.isMultiVCFSSEnabled)
@@ -341,6 +345,16 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 	backOffDurationMapMutex.Unlock()
 	log.Infof("Successfully updated topology labels for nodeVM %q", instance.Name)
 	return reconcile.Result{}, nil
+}
+
+// isTopologyEnabled checks if topology of cluster should be updated.
+// if cluster is not topology aware return false.
+func (r *ReconcileCSINodeTopology) isTopologyEnabled() bool {
+	if r.configInfo.Cfg.Labels.TopologyCategories == "" &&
+		r.configInfo.Cfg.Labels.Zone == "" && r.configInfo.Cfg.Labels.Region == "" {
+		return false
+	}
+	return true
 }
 
 func (r *ReconcileCSINodeTopology) reconcileForGuest(ctx context.Context, request reconcile.Request) (

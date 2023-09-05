@@ -105,6 +105,16 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		}
 	})
 
+	ginkgo.AfterEach(func() {
+		if supervisorCluster {
+			dumpSvcNsEventsOnTestFailure(client, namespace)
+		}
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
+		}
+	})
+
 	/*
 		Dynamic PVC -  Zonal storage and Immediate binding
 		1. Create a zonal storage policy, on the datastore that is shared only to specific cluster
@@ -241,7 +251,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+			Spec.StorageClassName = &storageclass.Name
 		*statefulset.Spec.Replicas = 3
 		CreateStatefulSet(namespace, statefulset, client)
 		replicas := *(statefulset.Spec.Replicas)
@@ -787,7 +797,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		framework.Logf("allowedTopo: %v", allowedTopologies)
 		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+			Spec.StorageClassName = &storageclass.Name
 		statefulset.Spec.Template.Spec.Affinity = new(v1.Affinity)
 		statefulset.Spec.Template.Spec.Affinity.NodeAffinity = new(v1.NodeAffinity)
 		statefulset.Spec.Template.Spec.Affinity.NodeAffinity.
@@ -887,7 +897,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			statefulset := GetStatefulSetFromManifest(namespace)
 			ginkgo.By("Creating statefulset")
 			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-				Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+				Spec.StorageClassName = &storageclass.Name
 			*statefulset.Spec.Replicas = 1
 			replicas := *(statefulset.Spec.Replicas)
 
@@ -1086,7 +1096,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		ginkgo.By("Creating statefulset")
 		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+			Spec.StorageClassName = &storageclass.Name
 		*statefulset.Spec.Replicas = 3
 
 		CreateStatefulSet(namespace, statefulset, client)
@@ -1195,7 +1205,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			statefulset.Spec.Template.Labels["app"] = statefulset.Name
 			statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
 			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-				Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+				Spec.StorageClassName = &storageclass.Name
 			*statefulset.Spec.Replicas = statefulSetReplicaCount
 			CreateStatefulSet(namespace, statefulset, client)
 			stsList = append(stsList, statefulset)
@@ -1307,7 +1317,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			statefulset.Spec.Template.Labels["app"] = statefulset.Name
 			statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
 			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-				Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+				Spec.StorageClassName = &storageclass.Name
 			*statefulset.Spec.Replicas = statefulSetReplicaCount
 			CreateStatefulSet(namespace, statefulset, client)
 			stsList = append(stsList, statefulset)
@@ -1510,7 +1520,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, volumeOpsScale)
+		pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, volumeOpsScale, nil)
 		_, err = fpv.WaitForPVClaimBoundPhase(client,
 			pvclaimsList, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1712,7 +1722,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
-			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, volumeOpsScale)
+			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, volumeOpsScale, nil)
 			_, err = fpv.WaitForPVClaimBoundPhase(client,
 				pvclaimsList, framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2160,7 +2170,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			statefulset.Spec.Template.Labels["app"] = statefulset.Name
 			statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
 			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-				Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+				Spec.StorageClassName = &storageclass.Name
 			*statefulset.Spec.Replicas = replicas
 			_, err := client.AppsV1().StatefulSets(namespace).Create(ctx, statefulset, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2260,7 +2270,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, volumeOpsScale)
+		pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, volumeOpsScale, nil)
 		pvs, err := fpv.WaitForPVClaimBoundPhase(client,
 			pvclaimsList, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2452,7 +2462,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		framework.Logf("allowedTopo: %v", allowedTopologies)
 		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+			Spec.StorageClassName = &storageclass.Name
 		statefulset.Spec.Template.Spec.Affinity = new(v1.Affinity)
 		statefulset.Spec.Template.Spec.Affinity.NodeAffinity = new(v1.NodeAffinity)
 		statefulset.Spec.Template.Spec.Affinity.NodeAffinity.
@@ -2494,7 +2504,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		framework.Logf("allowedTopo: %v", allowedTopologies)
 		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
 		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+			Spec.StorageClassName = &storageclass.Name
 		statefulset.Spec.Template.Spec.Affinity = new(v1.Affinity)
 		statefulset.Spec.Template.Spec.Affinity.NodeAffinity = new(v1.NodeAffinity)
 		statefulset.Spec.Template.Spec.Affinity.NodeAffinity.
@@ -2605,7 +2615,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 			statefulset.Spec.Template.Labels["app"] = statefulset.Name
 			statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
 			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-				Annotations["volume.beta.kubernetes.io/storage-class"] = storageclass.Name
+				Spec.StorageClassName = &storageclass.Name
 			*statefulset.Spec.Replicas = 3
 			CreateStatefulSet(namespace, statefulset, client)
 			stsList = append(stsList, statefulset)

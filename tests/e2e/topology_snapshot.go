@@ -235,7 +235,7 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 		snapshotId := strings.Split(snapshothandle, "+")[1]
 
 		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId)
+		err = verifySnapshotIsCreatedInCNS(volHandle, snapshotId, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		_, err = snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
@@ -272,8 +272,9 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 		specified in the allowed topologies of SC */
 		ginkgo.By("Verify PV node affinity and that the PODS are running on " +
 			"appropriate node as specified in the allowed topologies of SC")
-		verifyPVnodeAffinityAndPODnodedetailsFoStandalonePodLevel5(ctx, client, pod, namespace,
-			allowedTopologies)
+		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod, namespace,
+			allowedTopologies, false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
@@ -299,7 +300,7 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 		snapshotContentCreated = false
 
 		ginkgo.By("Verify snapshot entry is deleted from CNS")
-		err = verifySnapshotIsDeletedInCNS(volHandle, snapshotId)
+		err = verifySnapshotIsDeletedInCNS(volHandle, snapshotId, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Deleting volume snapshot Again to check Not found error")
@@ -368,8 +369,9 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 
 		// Verify PV node affinity and that the PODS are running on appropriate nodes
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
-		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, false)
+		err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+			namespace, allowedTopologies, false, false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Fetching pod 3, pvc3 and pv3 details")
 		pod3, err := client.CoreV1().Pods(namespace).Get(ctx,
@@ -443,7 +445,7 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 		snapshotId2 := strings.Split(snapshothandle3, "+")[1]
 
 		ginkgo.By("Query CNS and check the volume snapshot entry")
-		err = verifySnapshotIsCreatedInCNS(volHandle3, snapshotId2)
+		err = verifySnapshotIsCreatedInCNS(volHandle3, snapshotId2, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, "1Gi", storageclass, nil,
@@ -472,8 +474,9 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 		appropriate node as specified in the allowed topologies of SC */
 		ginkgo.By("Verify newly created PV node affinity and that the new PODS are running " +
 			"on appropriate node as specified in the allowed topologies of SC")
-		verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
-			namespace, allowedTopologies, false)
+		err = verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, client, statefulset,
+			namespace, allowedTopologies, false, false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Delete volume snapshot and verify the snapshot content is deleted")
 		deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot3.Name, pandoraSyncWaitTime)
@@ -486,7 +489,7 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology Volume Snapshot tests", fu
 		snapshotContentCreated = false
 
 		ginkgo.By("Verify snapshot  entry is deleted from CNS")
-		err = verifySnapshotIsDeletedInCNS(volHandle3, snapshotId2)
+		err = verifySnapshotIsDeletedInCNS(volHandle3, snapshotId2, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 

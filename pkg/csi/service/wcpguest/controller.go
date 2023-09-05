@@ -64,6 +64,8 @@ var (
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
 		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
+		csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
+		csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
 	}
 )
 
@@ -275,6 +277,15 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}
 		volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 		volumeSource := req.GetVolumeContentSource()
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) &&
+			volumeSource != nil {
+			sourceSnapshot := volumeSource.GetSnapshot()
+			if sourceSnapshot == nil {
+				return nil, csifault.CSIInvalidArgumentFault,
+					logger.LogNewErrorCode(log, codes.InvalidArgument, "unsupported VolumeContentSource type")
+			}
+			volumeSnapshotName = sourceSnapshot.GetSnapshotId()
+		}
 
 		// Get supervisorStorageClass and accessMode
 		var supervisorStorageClass string
@@ -303,10 +314,6 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 						return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
 					}
 					annotations[common.AnnGuestClusterRequestedTopology] = topologyAnnotation
-				}
-				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) &&
-					volumeSource != nil {
-					volumeSnapshotName = volumeSource.GetSnapshot().GetSnapshotId()
 				}
 				claim := getPersistentVolumeClaimSpecWithStorageClass(supervisorPVCName, c.supervisorNamespace,
 					diskSize, supervisorStorageClass, getAccessMode(accessMode), annotations, volumeSnapshotName)
@@ -1339,10 +1346,6 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
-		controllerCaps = append(controllerCaps, csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
-			csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS)
-	}
 	var caps []*csi.ControllerServiceCapability
 	for _, cap := range controllerCaps {
 		c := &csi.ControllerServiceCapability{

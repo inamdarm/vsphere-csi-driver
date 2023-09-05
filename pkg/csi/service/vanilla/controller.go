@@ -58,9 +58,10 @@ import (
 
 // NodeManagerInterface provides functionality to manage (VM) nodes.
 type NodeManagerInterface interface {
-	Initialize(ctx context.Context, useNodeUuid bool) error
+	Initialize(ctx context.Context) error
 	GetSharedDatastoresInK8SCluster(ctx context.Context) ([]*cnsvsphere.DatastoreInfo, error)
 	GetNodeByName(ctx context.Context, nodeName string) (*cnsvsphere.VirtualMachine, error)
+	GetNodeByNameOrUUID(ctx context.Context, nodeName string) (*cnsvsphere.VirtualMachine, error)
 	GetNodeNameByUUID(ctx context.Context, nodeUUID string) (string, error)
 	GetNodeByUuid(ctx context.Context, nodeUuid string) (*cnsvsphere.VirtualMachine, error)
 	GetAllNodes(ctx context.Context) ([]*cnsvsphere.VirtualMachine, error)
@@ -295,12 +296,9 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			}
 		}
 	}
-	useNodeUuid := false
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {
-		useNodeUuid = true
-	}
+
 	c.nodeMgr = &node.Nodes{}
-	err = c.nodeMgr.Initialize(ctx, useNodeUuid)
+	err = c.nodeMgr.Initialize(ctx)
 	if err != nil {
 		log.Errorf("failed to initialize nodeMgr. err=%v", err)
 		return err
@@ -444,7 +442,7 @@ func (c *controller) ReloadConfiguration() error {
 		// Re-Initialize Node Manager to cache latest vCenter config.
 		log.Debug("Re-Initializing node manager")
 		c.nodeMgr = &node.Nodes{}
-		err = c.nodeMgr.Initialize(ctx, true)
+		err = c.nodeMgr.Initialize(ctx)
 		if err != nil {
 			log.Errorf("failed to re-initialize nodeMgr. err=%v", err)
 			return err
@@ -487,12 +485,8 @@ func (c *controller) ReloadConfiguration() error {
 			}
 			c.manager.VcenterConfig = newVCConfig
 			// Re-Initialize Node Manager to cache latest vCenter config.
-			useNodeUuid := false
-			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {
-				useNodeUuid = true
-			}
 			c.nodeMgr = &node.Nodes{}
-			err = c.nodeMgr.Initialize(ctx, useNodeUuid)
+			err = c.nodeMgr.Initialize(ctx)
 			if err != nil {
 				log.Errorf("failed to re-initialize nodeMgr. err=%v", err)
 				return err
@@ -1558,7 +1552,7 @@ func (c *controller) calculateAccessibleTopologiesForDatastore(ctx context.Conte
 	log := logger.GetLogger(ctx)
 	var datastoreAccessibleTopology []map[string]string
 
-	// Find out all nodes which have access to the chosen datastore.
+	// Find out all nodeVMs which have access to the chosen datastore among all the nodes in k8s cluster.
 	accessibleNodes, err := common.GetNodeVMsWithAccessToDatastore(ctx, vcenter, datastoreURL, allNodeVMs)
 	if err != nil || len(accessibleNodes) == 0 {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -2113,17 +2107,12 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				}
 			}
 			var nodevm *cnsvsphere.VirtualMachine
-			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {
-				// if node is not yet updated to run the release of the driver publishing Node VM UUID as Node ID
-				// look up Node by name
-				nodevm, err = c.nodeMgr.GetNodeByName(ctx, req.NodeId)
-				if err == node.ErrNodeNotFound {
-					log.Infof("Performing node VM lookup using node VM UUID: %q", req.NodeId)
-					nodevm, err = c.nodeMgr.GetNodeByUuid(ctx, req.NodeId)
-				}
-
-			} else {
-				nodevm, err = c.nodeMgr.GetNodeByName(ctx, req.NodeId)
+			// if node is not yet updated to run the release of the driver publishing Node VM UUID as Node ID
+			// look up Node by name
+			nodevm, err = c.nodeMgr.GetNodeByNameOrUUID(ctx, req.NodeId)
+			if err == node.ErrNodeNotFound {
+				log.Infof("Performing node VM lookup using node VM UUID: %q", req.NodeId)
+				nodevm, err = c.nodeMgr.GetNodeByUuid(ctx, req.NodeId)
 			}
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
@@ -2257,16 +2246,12 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		// Block Volume.
 		volumeType = prometheus.PrometheusBlockVolumeType
 		var nodevm *cnsvsphere.VirtualMachine
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.UseCSINodeId) {
-			// if node is not yet updated to run the release of the driver publishing Node VM UUID as Node ID
-			// look up Node by name
-			nodevm, err = c.nodeMgr.GetNodeByName(ctx, req.NodeId)
-			if err == node.ErrNodeNotFound {
-				log.Infof("Performing node VM lookup using node VM UUID: %q", req.NodeId)
-				nodevm, err = c.nodeMgr.GetNodeByUuid(ctx, req.NodeId)
-			}
-		} else {
-			nodevm, err = c.nodeMgr.GetNodeByName(ctx, req.NodeId)
+		// if node is not yet updated to run the release of the driver publishing Node VM UUID as Node ID
+		// look up Node by name
+		nodevm, err = c.nodeMgr.GetNodeByNameOrUUID(ctx, req.NodeId)
+		if err == node.ErrNodeNotFound {
+			log.Infof("Performing node VM lookup using node VM UUID: %q", req.NodeId)
+			nodevm, err = c.nodeMgr.GetNodeByUuid(ctx, req.NodeId)
 		}
 		if err != nil {
 			if err == cnsvsphere.ErrVMNotFound {

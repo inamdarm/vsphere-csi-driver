@@ -248,6 +248,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		if err != nil {
 			return err
 		}
+		vCenter.Config.ReloadVCConfigForNewClient = true
 		metadataSyncer.host = vCenter.Config.Host
 
 		cnsDeletionMap[metadataSyncer.host] = make(map[string]bool)
@@ -513,7 +514,10 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 
 				// Update TriggerCsiFullSync instance if full sync is not already in progress
 				if triggerCsiFullSyncInstance.Status.InProgress {
-					log.Infof("There is a full sync already in progress. Ignoring this current cycle of periodic full sync")
+					log.Info("There is a full sync already in progress. Ignoring this current cycle of periodic full sync")
+				} else if !triggerCsiFullSyncInstance.Status.InProgress &&
+					triggerCsiFullSyncInstance.Spec.TriggerSyncID != triggerCsiFullSyncInstance.Status.LastTriggerSyncID {
+					log.Info("FullSync is already triggered. Ignoring this current cycle of periodic full sync")
 				} else {
 					triggerCsiFullSyncInstance.Spec.TriggerSyncID = triggerCsiFullSyncInstance.Spec.TriggerSyncID + 1
 					err = updateTriggerCsiFullSyncInstance(ctx, cnsOperatorClient, triggerCsiFullSyncInstance)
@@ -587,18 +591,55 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		defer pvToBackingDiskObjectIdMappingTicker.Stop()
 
 		var pvToBackingDiskObjectIdSupportCheck bool
-		vCenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
-		if err != nil {
-			return err
+		if !isMultiVCenterFssEnabled {
+			vCenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
+			if err != nil {
+				return err
+			}
+			pvToBackingDiskObjectIdSupportCheck = common.CheckPVtoBackingDiskObjectIdSupport(ctx, vCenter)
+
+		} else {
+			vcconfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, configInfo.Cfg)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to get VirtualCenterConfigs. err: %v", err)
+			}
+			var pvToBackingDiskObjectIdSupportedByVc bool
+			for _, vcconfig := range vcconfigs {
+				vCenter, err := cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)
+				if err != nil {
+					return logger.LogNewErrorf(log, "failed to get vCenterInstance for vCenter Host: %q, err: %v", vcconfig.Host, err)
+				}
+				// All VCs in the deployment must support PV to Backing Disk Object ID feature.
+				pvToBackingDiskObjectIdSupportedByVc = common.CheckPVtoBackingDiskObjectIdSupport(ctx, vCenter)
+				if !pvToBackingDiskObjectIdSupportedByVc {
+					pvToBackingDiskObjectIdSupportCheck = false
+					break
+				} else {
+					pvToBackingDiskObjectIdSupportCheck = true
+				}
+			}
 		}
-		pvToBackingDiskObjectIdSupportCheck = common.CheckPVtoBackingDiskObjectIdSupport(ctx, vCenter)
 
 		if pvToBackingDiskObjectIdSupportCheck {
 			go func() {
 				for ; true; <-pvToBackingDiskObjectIdMappingTicker.C {
 					ctx, log = logger.GetNewContextWithLogger()
 					log.Info("get pv to backingDiskObjectId mapping is triggered")
-					csiGetPVtoBackingDiskObjectIdMapping(ctx, k8sClient, metadataSyncer)
+
+					if !isMultiVCenterFssEnabled {
+						csiGetPVtoBackingDiskObjectIdMapping(ctx, k8sClient, metadataSyncer,
+							metadataSyncer.configInfo.Cfg.Global.VCenterIP)
+					} else {
+						vcconfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, configInfo.Cfg)
+						if err != nil {
+							log.Error(log, "failed to get VirtualCenterConfigs. err: %v", err)
+							return
+						}
+						// Update mapping for all VCs.
+						for _, vcconfig := range vcconfigs {
+							csiGetPVtoBackingDiskObjectIdMapping(ctx, k8sClient, metadataSyncer, vcconfig.Host)
+						}
+					}
 				}
 			}()
 		}
@@ -883,9 +924,12 @@ func getVCForTopologySegments(ctx context.Context, topologySegments map[string][
 // "csifullsync".
 func getTriggerCsiFullSyncInstance(ctx context.Context,
 	client client.Client) (*triggercsifullsyncv1alpha1.TriggerCsiFullSync, error) {
+	log := logger.GetLogger(ctx)
+	log.Info("get triggercsifullsync instance")
 	triggerCsiFullSyncInstance := &triggercsifullsyncv1alpha1.TriggerCsiFullSync{}
 	key := k8stypes.NamespacedName{Namespace: "", Name: common.TriggerCsiFullSyncCRName}
 	if err := client.Get(ctx, key, triggerCsiFullSyncInstance); err != nil {
+		log.Errorf("error get triggercsifullsync instance %+v", err)
 		return nil, err
 	}
 	return triggerCsiFullSyncInstance, nil
@@ -895,9 +939,12 @@ func getTriggerCsiFullSyncInstance(ctx context.Context,
 // name "csifullsync".
 func updateTriggerCsiFullSyncInstance(ctx context.Context,
 	client client.Client, instance *triggercsifullsyncv1alpha1.TriggerCsiFullSync) error {
+	log := logger.GetLogger(ctx)
+	log.Info("updating trigger csi fullsync instance")
 	if err := client.Update(ctx, instance); err != nil {
 		return err
 	}
+	log.Info("successfully update triggercsifullsync instance")
 	return nil
 }
 
@@ -1534,6 +1581,12 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 		if err != nil {
 			log.Errorf("PVC Updated: Failed to get VolumeID from volumeMigrationService for migration VolumeSpec: %v "+
 				"with error %+v", migrationVolumeSpec, err)
+			return
+		}
+		vcHost, cnsVolumeMgr, err = getVcHostAndVolumeManagerForVolumeID(ctx, metadataSyncer, volumeHandle)
+		if err != nil {
+			log.Errorf("PVCUpdated: Failed to get VC host and volume manager for the given volume: %v. "+
+				"Error occoured: %+v", volumeHandle, err)
 			return
 		}
 	} else {

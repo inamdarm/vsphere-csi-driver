@@ -12,6 +12,7 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -159,12 +160,21 @@ func (l *ListViewImpl) isClientValid() error {
 	// authenticated or timed out.
 	if userSession, err := sessionMgr.UserSession(l.ctx); err != nil {
 		log.Errorf("failed to obtain user session with err: %v", err)
-		return err
 	} else if userSession != nil {
 		return nil
 	}
+
+	err := cnsvsphere.ReadVCConfigs(l.ctx, l.virtualCenter)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to read VC config. err: %v", err)
+	}
 	// If session has expired, create a new instance.
-	client, err := l.virtualCenter.NewClient(l.ctx)
+	useragent, err := config.GetSessionUserAgent(l.ctx)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to get useragent for vCenter session. error: %+v", err)
+	}
+	useragent = useragent + "-listview"
+	client, err := l.virtualCenter.NewClient(l.ctx, useragent)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to create a govmomi client for listView. error: %+v", err)
 	}
@@ -315,5 +325,17 @@ func (l *ListViewImpl) MarkTaskForDeletion(ctx context.Context, taskMoRef types.
 	taskDetails.MarkedForRemoval = true
 	l.taskMap.Upsert(taskMoRef, taskDetails)
 	log.Infof("%v marked for deletion", taskMoRef)
+	return nil
+}
+
+// LogoutSession is a setter method to logout vcenter session created
+func (l *ListViewImpl) LogoutSession(ctx context.Context) error {
+	log := logger.GetLogger(ctx)
+	err := l.govmomiClient.Logout(l.ctx)
+	if err != nil {
+		log.Errorf("Error while logout vCenter session (list-view) for host %s, Error: %+v", l.virtualCenter.Config.Host, err)
+		return err
+	}
+	log.Infof("Logged out list-view vCenter session for host %s", l.virtualCenter.Config.Host)
 	return nil
 }

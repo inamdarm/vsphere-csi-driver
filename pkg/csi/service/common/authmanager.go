@@ -242,6 +242,10 @@ func GenerateDatastoreMapForBlockVolumes(ctx context.Context,
 		}
 	}
 
+	if len(entities) == 0 {
+		return map[string]*cnsvsphere.DatastoreInfo{}, nil
+	}
+
 	dsURLToInfoMap, err := getDatastoresWithBlockVolumePrivs(ctx, vc, dsURLs, dsInfos, entities)
 	if err != nil {
 		log.Errorf("failed to get datastores with required priv for vCenter %q. Error: %+v", vc.Config.Host, err)
@@ -372,15 +376,20 @@ func getDatastoresWithBlockVolumePrivs(ctx context.Context, vc *cnsvsphere.Virtu
 
 	userName := vc.Config.Username
 	// Invoke authMgr function HasUserPrivilegeOnEntities.
-	result, err := authMgr.HasUserPrivilegeOnEntities(ctx, entities, userName, privIds)
+	result, err := authMgr.HasUserPrivilegeOnEntities(ctx, entities, userName, privIds) // entities empty -> error
 	if err != nil {
 		log.Errorf("auth manager: failed to check privilege %v on entities %v for user %s and for vCenter %q",
 			privIds, entities, userName, vc.Config.Host)
 		return nil, err
 	}
-	log.Debugf(
-		"auth manager: HasUserPrivilegeOnEntities returns %v, when checking privileges %v on entities %v for user %s "+
-			"and for vCenter %q", result, privIds, entities, userName, vc.Config.Host)
+	if len(result) == 0 {
+		log.Infof("auth manager: HasUserPrivilegeOnEntities returned empty result when checking privileges %v "+
+			"on entities %v for user %s and for vCenter %q", privIds, entities, userName, vc.Config.Host)
+	} else {
+		log.Debugf("auth manager: HasUserPrivilegeOnEntities returned %v when checking privileges %v on entities %v "+
+			"for user %s and for vCenter %q", result, privIds, entities, userName, vc.Config.Host)
+	}
+
 	for index, entityPriv := range result {
 		hasPriv := true
 		privAvails := entityPriv.PrivAvailability
@@ -396,6 +405,11 @@ func getDatastoresWithBlockVolumePrivs(ctx context.Context, vc *cnsvsphere.Virtu
 			log.Debugf("auth manager: datastore with URL %s and name %s has privileges and is added to dsURLToInfoMap "+
 				"for vCenter %q", dsInfos[index].Info.Name, dsURLs[index], vc.Config.Host)
 		}
+	}
+	if len(result) != 0 && len(dsURLToInfoMap) == 0 {
+		log.Infof("auth manager: user %s on vCenter %q doesn't have privileges for any datastore. "+
+			"HasUserPrivilegeOnEntities returns %v, when checking privileges %v on entities %v."+
+			userName, vc.Config.Host, result, privIds, entities)
 	}
 	return dsURLToInfoMap, nil
 }
@@ -517,9 +531,14 @@ func getFSEnabledClustersWithPriv(ctx context.Context, vc *cnsvsphere.VirtualCen
 			privIds, entities, userName, vc.Config.Host)
 		return nil, err
 	}
-	log.Debugf(
-		"auth manager: HasUserPrivilegeOnEntities returns %v when checking privileges %v on entities %v for user %s "+
-			"and for vCenter %q", result, privIds, entities, userName, vc.Config.Host)
+	if len(result) == 0 {
+		log.Infof("auth manager: HasUserPrivilegeOnEntities returned empty result when checking privileges %v "+
+			"on entities %v for user %s and for vCenter %q", privIds, entities, userName, vc.Config.Host)
+	} else {
+		log.Debugf("auth manager: HasUserPrivilegeOnEntities returned %v when checking privileges %v on entities %v "+
+			"for user %s and for vCenter %q", result, privIds, entities, userName, vc.Config.Host)
+	}
+
 	clusterComputeResourceWithPriv := []*object.ClusterComputeResource{}
 	for _, entityPriv := range result {
 		hasPriv := true
@@ -536,8 +555,14 @@ func getFSEnabledClustersWithPriv(ctx context.Context, vc *cnsvsphere.VirtualCen
 				clusterComputeResourcesMap[entityPriv.Entity.Value])
 		}
 	}
-	log.Debugf("Clusters with priv: %s and vCenter: %q are : %+v", HostConfigStoragePriv,
-		vc.Config.Host, clusterComputeResourceWithPriv)
+	if len(result) != 0 && len(clusterComputeResourceWithPriv) == 0 {
+		log.Infof("auth manager: user %s on vCenter %q doesn't have privileges for any ClusterComputeResource. "+
+			"HasUserPrivilegeOnEntities returns %v, when checking privileges %v on entities %v."+
+			userName, vc.Config.Host, result, privIds, entities)
+	} else {
+		log.Debugf("Clusters with priv: %s and vCenter: %q are : %+v", HostConfigStoragePriv,
+			vc.Config.Host, clusterComputeResourceWithPriv)
+	}
 
 	// Get clusters which are vSAN and have vSAN FS enabled.
 	clusterComputeResourceWithPrivAndFS := []*object.ClusterComputeResource{}
@@ -554,15 +579,18 @@ func getFSEnabledClustersWithPriv(ctx context.Context, vc *cnsvsphere.VirtualCen
 				cluster, vc.Config.Host)
 			continue
 		} else if config.FileServiceConfig == nil {
-			log.Debugf("VsanClusterGetConfig.FileServiceConfig is empty. Skipping this cluster: %+v with "+
+			log.Infof("VsanClusterGetConfig.FileServiceConfig is empty. Skipping this cluster: %+v with "+
 				"vCenter: %q and with config: %+v", cluster, vc.Config.Host, config)
 			continue
 		}
 
-		log.Debugf("cluster: %+v and vCenter: %q has vSAN file services enabled: %t", cluster, vc.Config.Host,
-			config.FileServiceConfig.Enabled)
 		if config.FileServiceConfig.Enabled {
 			clusterComputeResourceWithPrivAndFS = append(clusterComputeResourceWithPrivAndFS, cluster)
+			log.Debugf("vSAN file service is enabled for cluster: %+v and vCenter: %q.",
+				cluster, vc.Config.Host)
+		} else {
+			log.Infof("vSAN file service is disabled for cluster: %+v and vCenter: %q.",
+				cluster, vc.Config.Host)
 		}
 	}
 

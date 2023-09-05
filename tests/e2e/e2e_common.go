@@ -31,7 +31,6 @@ const (
 	adminUser                                  = "Administrator@vsphere.local"
 	apiServerIPs                               = "API_SERVER_IPS"
 	attacherContainerName                      = "csi-attacher"
-	busyBoxImageOnGcr                          = "harbor-repo.vmware.com/csi/busybox:1.35"
 	nginxImage                                 = "registry.k8s.io/nginx-slim:0.26"
 	nginxImage4upg                             = "registry.k8s.io/nginx-slim:0.27"
 	configSecret                               = "vsphere-config-secret"
@@ -42,6 +41,9 @@ const (
 	crdtriggercsifullsyncsName                 = "csifullsync"
 	crdGroup                                   = "cns.vmware.com"
 	crdVersion                                 = "v1alpha1"
+	crdVirtualMachineImages                    = "virtualmachineimages"
+	crdVirtualMachines                         = "virtualmachines"
+	crdVirtualMachineService                   = "virtualmachineservice"
 	csiSystemNamespace                         = "vmware-system-csi"
 	csiFssCM                                   = "internal-feature-states.csi.vsphere.vmware.com"
 	csiVolAttrVolType                          = "vSphere CNS Block Volume"
@@ -64,9 +66,14 @@ const (
 	envClusterFlavor                           = "CLUSTER_FLAVOR"
 	envDiskSizeLarge                           = "LARGE_DISK_SIZE"
 	envCSINamespace                            = "CSI_NAMESPACE"
+	envContentLibraryUrl                       = "CONTENT_LIB_URL"
+	envContentLibraryUrlSslThumbprint          = "CONTENT_LIB_THUMBPRINT"
 	envEsxHostIP                               = "ESX_TEST_HOST_IP"
 	envFileServiceDisabledSharedDatastoreURL   = "FILE_SERVICE_DISABLED_SHARED_VSPHERE_DATASTORE_URL"
 	envFullSyncWaitTime                        = "FULL_SYNC_WAIT_TIME"
+	envGatewayVmIp                             = "GATEWAY_VM_IP"
+	envGatewayVmUser                           = "GATEWAY_VM_USER"
+	envGatewayVmPasswd                         = "GATEWAY_VM_PASSWD"
 	envInaccessibleZoneDatastoreURL            = "INACCESSIBLE_ZONE_VSPHERE_DATASTORE_URL"
 	envNonSharedStorageClassDatastoreURL       = "NONSHARED_VSPHERE_DATASTORE_URL"
 	envPandoraSyncWaitTime                     = "PANDORA_SYNC_WAIT_TIME"
@@ -78,11 +85,13 @@ const (
 	envSharedNFSDatastoreURL                   = "SHARED_NFS_DATASTORE_URL"
 	envSharedVMFSDatastoreURL                  = "SHARED_VMFS_DATASTORE_URL"
 	envSharedVMFSDatastore2URL                 = "SHARED_VMFS_DATASTORE2_URL"
+	envVMClass                                 = "VM_CLASS"
 	envVsanDirectSetup                         = "USE_VSAN_DIRECT_DATASTORE_IN_WCP"
 	envVsanDDatastoreURL                       = "SHARED_VSAND_DATASTORE_URL"
 	envVsanDDatastore2URL                      = "SHARED_VSAND_DATASTORE2_URL"
 	envStoragePolicyNameForNonSharedDatastores = "STORAGE_POLICY_FOR_NONSHARED_DATASTORES"
 	envStoragePolicyNameForSharedDatastores    = "STORAGE_POLICY_FOR_SHARED_DATASTORES"
+	envStoragePolicyNameForVsanVmfsDatastores  = "STORAGE_POLICY_FOR_VSAN_VMFS_DATASTORES"
 	envStoragePolicyNameForSharedDatastores2   = "STORAGE_POLICY_FOR_SHARED_DATASTORES_2"
 	envStoragePolicyNameFromInaccessibleZone   = "STORAGE_POLICY_FROM_INACCESSIBLE_ZONE"
 	envStoragePolicyNameWithThickProvision     = "STORAGE_POLICY_WITH_THICK_PROVISIONING"
@@ -94,11 +103,14 @@ const (
 	envNumberOfGoRoutines                      = "NUMBER_OF_GO_ROUTINES"
 	envWorkerPerRoutine                        = "WORKER_PER_ROUTINE"
 	envVmdkDiskURL                             = "DISK_URL_PATH"
+	envVmsvcVmImageName                        = "VMSVC_IMAGE_NAME"
 	envVolumeOperationsScale                   = "VOLUME_OPS_SCALE"
 	envComputeClusterName                      = "COMPUTE_CLUSTER_NAME"
 	envTKGImage                                = "TKG_IMAGE_NAME"
 	execCommand                                = "/bin/df -T /mnt/volume1 | " +
 		"/bin/awk 'FNR == 2 {print $2}' > /mnt/volume1/fstype && while true ; do sleep 2 ; done"
+	execRWXCommandPod = "echo 'Hello message from Pod' > /mnt/volume1/Pod.html  && " +
+		"chmod o+rX /mnt /mnt/volume1/Pod.html && while true ; do sleep 2 ; done"
 	execRWXCommandPod1 = "echo 'Hello message from Pod1' > /mnt/volume1/Pod1.html  && " +
 		"chmod o+rX /mnt /mnt/volume1/Pod1.html && while true ; do sleep 2 ; done"
 	execRWXCommandPod2 = "echo 'Hello message from Pod2' > /mnt/volume1/Pod2.html  && " +
@@ -182,6 +194,7 @@ const (
 	vanillaClusterDistribution                = "CSI-Vanilla"
 	vanillaClusterDistributionWithSpecialChar = "CSI-\tVanilla-#Test"
 	vcClusterAPI                              = "/api/vcenter/namespace-management/clusters"
+	vcRestSessionIdHeaderName                 = "vmware-api-session-Id"
 	vpxdServiceName                           = "vpxd"
 	vpxdReducedTaskTimeoutSecsInt             = 90
 	vSphereCSIControllerPodNamePrefix         = "vsphere-csi-controller"
@@ -218,10 +231,62 @@ const (
 	topologyCluster                            = "TOPOLOGY_CLUSTERS"
 	topologyLength                             = 5
 	tkgshaTopologyLevels                       = 1
+	vmClassBestEffortSmall                     = "best-effort-small"
 	vmcPrdEndpoint                             = "https://vmc.vmware.com/vmc/api/orgs/"
 	vsphereClusterIdConfigMapName              = "vsphere-csi-cluster-id"
 	authAPI                                    = "https://console.cloud.vmware.com/csp/gateway/am/api/auth" +
 		"/api-tokens/authorize"
+)
+
+/*
+// test suite labels
+
+flaky -> label include the testcases which fails intermittently
+disruptive -> label include the testcases which are disruptive in nature
+vanilla -> label include the testcases for block, file, configSecret, topology etc.
+stable -> label include the testcases which do not fail
+longRunning -> label include the testcases which takes longer time for completion
+p0 -> label include the testcases which are P0
+p1 -> label include the testcases which are P1
+p2 -> label include the testcases which are P2
+semiAutomated -> label include the testcases which are semi-automated
+newTests -> label include the testcases which are newly automated
+core -> label include the testcases specific to block or file
+level2 -> label include the level-2 topology testcases or pipeline specific
+level5 -> label include the level-5 topology testcases
+customPort -> label include the testcases running on vCenter custom port <VC:444>
+deprecated ->label include the testcases which are no longer in execution
+*/
+const (
+	flaky               = "flaky"
+	disruptive          = "disruptive"
+	wcp                 = "wcp"
+	tkg                 = "tkg"
+	vanilla             = "vanilla"
+	topology            = "topology"
+	preferential        = "preferential"
+	vsphereConfigSecret = "vsphereConfigSecret"
+	snapshot            = "snapshot"
+	stable              = "stable"
+	newTests            = "newTests"
+	multiVc             = "multiVc"
+	block               = "block"
+	file                = "file"
+	core                = "core"
+	p0                  = "p0"
+	p1                  = "p1"
+	p2                  = "p2"
+	vsanStretch         = "vsanStretch"
+	longRunning         = "longRunning"
+	deprecated          = "deprecated"
+	vmc                 = "vmc"
+	tkgsHA              = "tkgsHA"
+	thickThin           = "thickThin"
+	customPort          = "customPort"
+	windows             = "windows"
+	semiAutomated       = "semiAutomated"
+	level2              = "level2"
+	level5              = "level5"
 )
 
 // The following variables are required to know cluster type to run common e2e
@@ -232,6 +297,11 @@ var (
 	guestCluster         bool
 	rwxAccessMode        bool
 	wcpVsanDirectCluster bool
+)
+
+// For busybox pod image
+var (
+	busyBoxImageOnGcr = "busybox"
 )
 
 // For VCP to CSI migration tests.
@@ -245,7 +315,6 @@ var (
 	migratedPluginAnnotation        = "storage.alpha.kubernetes.io/migrated-plugins"
 	pvcAnnotationStorageProvisioner = "volume.beta.kubernetes.io/storage-provisioner"
 	pvAnnotationProvisionedBy       = "pv.kubernetes.io/provisioned-by"
-	scAnnotation4Statefulset        = "volume.beta.kubernetes.io/storage-class"
 	nodeMapper                      = &NodeMapper{}
 )
 
@@ -260,11 +329,6 @@ var (
 	configSecretTestUser2Password = "VMware!234"
 	configSecretTestUser1         = "testuser1"
 	configSecretTestUser2         = "testuser2"
-)
-
-// CSI Internal FSSs
-var (
-	useCsiNodeID = "use-csinode-id"
 )
 
 // Nimbus generated passwords
@@ -292,6 +356,27 @@ var (
 	nfstoragePolicyDatastoreUrl           = "NFS_STORAGE_POLICY_DATASTORE_URL"
 	workerClusterMap                      = "WORKER_CLUSTER_MAP"
 	datastoreClusterMap                   = "DATASTORE_CLUSTER_MAP"
+)
+
+// For multivc
+var (
+	envSharedDatastoreURLVC1          = "SHARED_VSPHERE_DATASTORE_URL_VC1"
+	envSharedDatastoreURLVC2          = "SHARED_VSPHERE_DATASTORE_URL_VC2"
+	envStoragePolicyNameToDeleteLater = "STORAGE_POLICY_TO_DELETE_LATER"
+	envMultiVCSetupType               = "MULTI_VC_SETUP_TYPE"
+	envStoragePolicyNameVC1           = "STORAGE_POLICY_VC1"
+	envStoragePolicyNameInVC1VC2      = "STORAGE_POLICY_NAME_COMMON_IN_VC1_VC2"
+	envPreferredDatastoreUrlVC1       = "PREFERRED_DATASTORE_URL_VC1"
+	envPreferredDatastoreUrlVC2       = "PREFERRED_DATASTORE_URL_VC2"
+	envTestbedInfoJsonPathVC1         = "TESTBEDINFO_JSON_VC1"
+	envTestbedInfoJsonPathVC2         = "TESTBEDINFO_JSON_VC2"
+	envTestbedInfoJsonPathVC3         = "TESTBEDINFO_JSON_VC3"
+)
+
+// VolumeSnapshotClass env variables for tkg-snapshot
+var (
+	envVolSnapClassDel = "VOLUME_SNAPSHOT_CLASS_DELETE"
+	deletionPolicy     = "Delete"
 )
 
 // GetAndExpectStringEnvVar parses a string from env variable.

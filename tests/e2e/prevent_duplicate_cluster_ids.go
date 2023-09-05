@@ -187,7 +187,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		}
 		ginkgo.By("Creating statefulset with replica 3 and a deployment")
 		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
-			false, 0, "", accessMode)
+			false, 0, "", accessMode, false)
 		replicas := *(statefulset.Spec.Replicas)
 
 		defer func() {
@@ -345,7 +345,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		}
 		ginkgo.By("Creating statefulset with replica 3 and a deployment")
 		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
-			false, 0, "", accessMode)
+			false, 0, "", accessMode, false)
 		replicas := *(statefulset.Spec.Replicas)
 
 		defer func() {
@@ -503,7 +503,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		}
 		ginkgo.By("Creating statefulset with replica 3 and a deployment")
 		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
-			false, 0, "", accessMode)
+			false, 0, "", accessMode, false)
 		replicas := *(statefulset.Spec.Replicas)
 
 		defer func() {
@@ -755,7 +755,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		}
 		ginkgo.By("Creating statefulset with replica 3 and a deployment")
 		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
-			false, 0, "", accessMode)
+			false, 0, "", accessMode, false)
 		replicas := *(statefulset.Spec.Replicas)
 
 		defer func() {
@@ -778,7 +778,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 			}
 		}()
 		for i := 0; i < 3; i++ {
-			restartSuccess, err := restartCSIDriver(ctx, client, namespace, csiReplicas)
+			restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
 			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -862,7 +862,7 @@ var _ = ginkgo.Describe("Prevent duplicate cluster ID", func() {
 		}
 		ginkgo.By("Creating statefulset with replica 3 and a deployment")
 		statefulset, deployment, _ := createStsDeployment(ctx, client, namespace, sc, true,
-			false, 0, "", accessMode)
+			false, 0, "", accessMode, false)
 		replicas := *(statefulset.Spec.Replicas)
 
 		defer func() {

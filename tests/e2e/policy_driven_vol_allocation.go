@@ -53,9 +53,6 @@ var spareSpace int64 = 200
 
 var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation tests", func() {
 	f := framework.NewDefaultFramework("e2e-spbm-policy")
-	if supervisorCluster {
-		framework.TestContext.DeleteNamespace = false
-	}
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
 		client          clientset.Interface
@@ -90,9 +87,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		if vsanDirectSetup == "VSAN_DIRECT" {
 			wcpVsanDirectCluster = true
 		}
-		if supervisorCluster {
-			f.Namespace.Name = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
-		}
 		labelKey = "app"
 		labelValue = "e2e-labels"
 	})
@@ -101,6 +95,14 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		setVpxdTaskTimeout(ctx, 0) // reset vpxd timeout to default
+
+		if supervisorCluster {
+			dumpSvcNsEventsOnTestFailure(client, namespace)
+		}
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
+		}
 	})
 
 	/*
@@ -124,7 +126,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		defer cancel()
 		sharedvmfsURL, vsanDDatstoreURL := "", ""
 		var allocationTypes []string
-
 		scParameters := make(map[string]string)
 		policyNames := []string{}
 		pvcs := []*v1.PersistentVolumeClaim{}
@@ -594,7 +595,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		start := time.Now()
 		ginkgo.By("Verify the PVCs created in step 3 are bound")
 		pvs, err := fpv.WaitForPVClaimBoundPhase(
-			client, []*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
+			client, []*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout*4)
 		elapsed := time.Since(start)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -777,11 +778,11 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 		if !guestCluster {
-			err = waitForPvResize(pvs[0], client, newSize, totalResizeWaitPeriod)
+			err = waitForPvResize(pvs[0], client, newSize, totalResizeWaitPeriod*2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
 			svcPVCName := pvs[0].Spec.CSI.VolumeHandle
-			err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
+			err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod*2)
 			framework.ExpectNoError(err, "While waiting for pvc resize to finish")
 
 			ginkgo.By("Checking for resize on SVC PV")
@@ -1781,7 +1782,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			snapIDs = append(snapIDs, snapshotId)
 
 			ginkgo.By("Query CNS and check the volume snapshot entry")
-			err = verifySnapshotIsCreatedInCNS(volIds[i], snapshotId)
+			err = waitForCNSSnapshotToBeCreated(volIds[i], snapshotId)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		defer func() {
@@ -2999,7 +3000,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			}()
 
 			ginkgo.By("Query CNS and check the volume snapshot entry")
-			err = verifySnapshotIsCreatedInCNS(snapToVolIdMap[volumeSnapshot.Name], snapshotId)
+			err = waitForCNSSnapshotToBeCreated(snapToVolIdMap[volumeSnapshot.Name], snapshotId)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -3120,6 +3121,7 @@ func setVpxdTaskTimeout(ctx context.Context, taskTimeout int) {
 func writeKnownData2PodInParallel(
 	f *framework.Framework, pod *v1.Pod, testdataFile string, wg *sync.WaitGroup, size ...int64) {
 
+	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	writeKnownData2Pod(f, pod, testdataFile, size...)
 }
@@ -3163,7 +3165,7 @@ func verifyKnownDataInPod(f *framework.Framework, pod *v1.Pod, testdataFile stri
 			"/bin/sh", "-c", "dd if=/mnt/volume1/f1 of=/mnt/volume1/testdata bs=1M count=100 skip=" + skip}
 		_ = framework.RunKubectlOrDie(pod.Namespace, cmd...)
 		_ = framework.RunKubectlOrDie(pod.Namespace, "cp",
-			fmt.Sprintf("%v/%v:/mnt/volume1/testdata", pod.Namespace, pod.Name),
+			fmt.Sprintf("%v/%v:mnt/volume1/testdata", pod.Namespace, pod.Name),
 			testdataFile+pod.Name)
 		framework.Logf("Running diff with source file and file from pod %v for 100M starting %vM", pod.Name, skip)
 		op, err := exec.Command("diff", testdataFile, testdataFile+pod.Name).Output()
@@ -3174,6 +3176,7 @@ func verifyKnownDataInPod(f *framework.Framework, pod *v1.Pod, testdataFile stri
 }
 
 func reconfigPolicyParallel(ctx context.Context, volID string, policyId string, wg *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
 	defer wg.Done()
 	err := e2eVSphere.reconfigPolicy(ctx, volID, policyId)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

@@ -169,7 +169,7 @@ func configFromEnvOrSim() (*config.Config, func()) {
 	return cfg, func() {}
 }
 
-func (f *FakeNodeManager) Initialize(ctx context.Context, useNodeUuid bool) error {
+func (f *FakeNodeManager) Initialize(ctx context.Context) error {
 	return nil
 }
 
@@ -227,7 +227,7 @@ func (f *FakeNodeManager) GetNodeByName(ctx context.Context, nodeName string) (*
 	var vm *cnsvsphere.VirtualMachine
 	var t *testing.T
 	if v := os.Getenv("VSPHERE_DATACENTER"); v != "" {
-		nodeUUID, err := k8s.GetNodeUUID(ctx, f.k8sClient, nodeName, false)
+		nodeUUID, err := k8s.GetNodeUUID(ctx, f.k8sClient, nodeName)
 		if err != nil {
 			t.Errorf("failed to get providerId from node: %q. Err: %v", nodeName, err)
 			return nil, err
@@ -244,6 +244,11 @@ func (f *FakeNodeManager) GetNodeByName(ctx context.Context, nodeName string) (*
 		}
 	}
 	return vm, nil
+}
+
+func (f *FakeNodeManager) GetNodeByNameOrUUID(
+	ctx context.Context, nodeNameOrUUID string) (*cnsvsphere.VirtualMachine, error) {
+	return f.GetNodeByName(ctx, nodeNameOrUUID)
 }
 
 func (f *FakeNodeManager) GetNodeNameByUUID(ctx context.Context, nodeUUID string) (string, error) {

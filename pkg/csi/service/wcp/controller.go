@@ -68,6 +68,8 @@ var (
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
 		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
+		csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
+		csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
 	}
 	checkCompatibleDataStores = true
 )
@@ -127,6 +129,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		log.Errorf("failed to get VirtualCenterConfig. err=%v", err)
 		return err
 	}
+	vcenterconfig.ReloadVCConfigForNewClient = true
 	vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
 	vcenter, err := vcManager.RegisterVirtualCenter(ctx, vcenterconfig)
 	if err != nil {
@@ -241,8 +244,8 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 							log.Infof("Successfully reloaded configuration from: %q", cfgPath)
 							break
 						}
-						log.Errorf("failed to reload configuration. will retry again in 5 seconds. err: %+v", reloadConfigErr)
-						time.Sleep(5 * time.Second)
+						log.Errorf("failed to reload configuration. will retry again in 60 seconds. err: %+v", reloadConfigErr)
+						time.Sleep(60 * time.Second)
 					}
 				}
 				// Handling create event for reconnecting to VC when ca file is
@@ -320,6 +323,7 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 		return err
 	}
 	if newVCConfig != nil {
+		newVCConfig.ReloadVCConfigForNewClient = true
 		var vcenter *cnsvsphere.VirtualCenter
 		if c.manager.VcenterConfig.Host != newVCConfig.Host ||
 			c.manager.VcenterConfig.Username != newVCConfig.Username ||
@@ -1433,7 +1437,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListVolumeOpType,
 			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
 	}
-	return resp, nil
+	return resp, err
 }
 
 func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (
@@ -1454,11 +1458,6 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
 		controllerCaps = append(controllerCaps, csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
 			csi.ControllerServiceCapability_RPC_LIST_VOLUMES_PUBLISHED_NODES)
-	}
-
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
-		controllerCaps = append(controllerCaps, csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
-			csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS)
 	}
 
 	for _, cap := range controllerCaps {

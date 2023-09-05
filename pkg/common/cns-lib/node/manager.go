@@ -40,10 +40,6 @@ var (
 type Manager interface {
 	// SetKubernetesClient sets kubernetes client for node manager.
 	SetKubernetesClient(client clientset.Interface)
-	// SetUseNodeUuid sets whether the node manager should use
-	// K8s CSINode API object or the K8s Node API object to retrieve
-	// the node UUID.
-	SetUseNodeUuid(useNodeUuid bool)
 	// RegisterNode registers a node given its UUID, name.
 	RegisterNode(ctx context.Context, nodeUUID string, nodeName string) error
 	// DiscoverNode discovers a registered node given its UUID. This method
@@ -60,6 +56,9 @@ type Manager interface {
 	// GetNodeByName refreshes and returns the VirtualMachine for a registered
 	// node given its name.
 	GetNodeByName(ctx context.Context, nodeName string) (*vsphere.VirtualMachine, error)
+	// GetNodeByNameOrUUID refreshes and returns VirtualMachine for a registered node
+	// using either its name or UUID.
+	GetNodeByNameOrUUID(ctx context.Context, nodeName string) (*vsphere.VirtualMachine, error)
 	// GetNodeNameByUUID fetches the name of the node given the VM UUID.
 	GetNodeNameByUUID(ctx context.Context, nodeUUID string) (string, error)
 	// GetAllNodes refreshes and returns VirtualMachine for all registered
@@ -105,21 +104,11 @@ type defaultManager struct {
 	nodeNameToUUID sync.Map
 	// k8s client.
 	k8sClient clientset.Interface
-	// useNodeUuid uses K8s CSINode API instead of
-	// K8s Node to retrieve the node UUID.
-	useNodeUuid bool
 }
 
 // SetKubernetesClient sets specified kubernetes client to defaultManager.k8sClient
 func (m *defaultManager) SetKubernetesClient(client clientset.Interface) {
 	m.k8sClient = client
-}
-
-// SetUseNodeUuid sets whether the node manager should use
-// K8s CSINode API object or the K8s Node API object to retrieve
-// node UUID.
-func (m *defaultManager) SetUseNodeUuid(useNodeUuid bool) {
-	m.useNodeUuid = useNodeUuid
 }
 
 // RegisterNode registers a node with node manager using its UUID, name.
@@ -157,16 +146,11 @@ func (m *defaultManager) DiscoverNode(ctx context.Context, nodeUUID string) erro
 func (m *defaultManager) GetNodeByName(ctx context.Context, nodeName string) (*vsphere.VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
 	nodeUUID, found := m.nodeNameToUUID.Load(nodeName)
-	if !found {
-		log.Errorf("Node not found with nodeName %s", nodeName)
-		return nil, ErrNodeNotFound
-	}
-	if nodeUUID != nil && nodeUUID.(string) != "" {
+	if found && nodeUUID != nil && nodeUUID.(string) != "" {
 		return m.GetNode(ctx, nodeUUID.(string), nil)
 	}
 	log.Infof("Empty nodeUUID observed in cache for the node: %q", nodeName)
-	k8snodeUUID, err := k8s.GetNodeUUID(ctx, m.k8sClient, nodeName,
-		m.useNodeUuid)
+	k8snodeUUID, err := k8s.GetNodeUUID(ctx, m.k8sClient, nodeName)
 	if err != nil {
 		log.Errorf("failed to get node UUID from node: %q. Err: %v", nodeName, err)
 		return nil, err
@@ -174,6 +158,27 @@ func (m *defaultManager) GetNodeByName(ctx context.Context, nodeName string) (*v
 	m.nodeNameToUUID.Store(nodeName, k8snodeUUID)
 	return m.GetNode(ctx, k8snodeUUID, nil)
 
+}
+
+func (m *defaultManager) GetNodeByNameOrUUID(
+	ctx context.Context, nodeNameOrUUID string) (*vsphere.VirtualMachine, error) {
+	log := logger.GetLogger(ctx)
+	nodeUUID, found := m.nodeNameToUUID.Load(nodeNameOrUUID)
+	if !found {
+		log.Errorf("Node not found with nodeName %s", nodeNameOrUUID)
+		return nil, ErrNodeNotFound
+	}
+	if nodeUUID != nil && nodeUUID.(string) != "" {
+		return m.GetNode(ctx, nodeUUID.(string), nil)
+	}
+	log.Infof("Empty nodeUUID observed in cache for the node: %q", nodeNameOrUUID)
+	k8snodeUUID, err := k8s.GetNodeUUID(ctx, m.k8sClient, nodeNameOrUUID)
+	if err != nil {
+		log.Errorf("failed to get node UUID from node: %q. Err: %v", nodeNameOrUUID, err)
+		return nil, err
+	}
+	m.nodeNameToUUID.Store(nodeNameOrUUID, k8snodeUUID)
+	return m.GetNode(ctx, k8snodeUUID, nil)
 }
 
 // GetNodeNameByUUID fetches the name of the node given the VM UUID.
@@ -256,8 +261,7 @@ func (m *defaultManager) GetAllNodes(ctx context.Context) ([]*vsphere.VirtualMac
 	m.nodeNameToUUID.Range(func(nodeName, nodeUUID interface{}) bool {
 		if nodeName != nil && nodeUUID != nil && nodeUUID.(string) == "" {
 			log.Infof("Empty node UUID observed for the node: %q", nodeName)
-			k8snodeUUID, err := k8s.GetNodeUUID(ctx, m.k8sClient,
-				nodeName.(string), m.useNodeUuid)
+			k8snodeUUID, err := k8s.GetNodeUUID(ctx, m.k8sClient, nodeName.(string))
 			if err != nil {
 				log.Errorf("failed to get node UUID from node: %q. Err: %v", nodeName, err)
 				return true
@@ -323,8 +327,7 @@ func (m *defaultManager) GetAllNodesByVC(ctx context.Context, vcHost string) ([]
 	m.nodeNameToUUID.Range(func(nodeName, nodeUUID interface{}) bool {
 		if nodeName != nil && nodeUUID != nil && nodeUUID.(string) == "" {
 			log.Infof("Empty node UUID observed for the node: %q", nodeName)
-			k8snodeUUID, err := k8s.GetNodeUUID(ctx, m.k8sClient,
-				nodeName.(string), m.useNodeUuid)
+			k8snodeUUID, err := k8s.GetNodeUUID(ctx, m.k8sClient, nodeName.(string))
 			if err != nil {
 				log.Errorf("failed to get node UUID from node: %q. Err: %v", nodeName, err)
 				return true
