@@ -33,6 +33,7 @@ const (
 	attacherContainerName                      = "csi-attacher"
 	nginxImage                                 = "registry.k8s.io/nginx-slim:0.26"
 	nginxImage4upg                             = "registry.k8s.io/nginx-slim:0.27"
+	retainClaimPolicy                          = "Retain"
 	configSecret                               = "vsphere-config-secret"
 	contollerClusterKubeConfig                 = "CONTROLLER_CLUSTER_KUBECONFIG"
 	crdCNSNodeVMAttachment                     = "cnsnodevmattachments"
@@ -93,6 +94,9 @@ const (
 	envStoragePolicyNameForSharedDatastores    = "STORAGE_POLICY_FOR_SHARED_DATASTORES"
 	envStoragePolicyNameForVsanVmfsDatastores  = "STORAGE_POLICY_FOR_VSAN_VMFS_DATASTORES"
 	envStoragePolicyNameForSharedDatastores2   = "STORAGE_POLICY_FOR_SHARED_DATASTORES_2"
+	envStoragePolicyNameForVmfsDatastores      = "STORAGE_POLICY_FOR_VMFS_DATASTORES"
+	envStoragePolicyNameForNfsDatastores       = "STORAGE_POLICY_FOR_NFS_DATASTORES"
+	envStoragePolicyNameForVvolDatastores      = "STORAGE_POLICY_FOR_VVOL_DATASTORES"
 	envStoragePolicyNameFromInaccessibleZone   = "STORAGE_POLICY_FROM_INACCESSIBLE_ZONE"
 	envStoragePolicyNameWithThickProvision     = "STORAGE_POLICY_WITH_THICK_PROVISIONING"
 	envSupervisorClusterNamespace              = "SVC_NAMESPACE"
@@ -263,12 +267,11 @@ const (
 	wcp                 = "wcp"
 	tkg                 = "tkg"
 	vanilla             = "vanilla"
-	topology            = "topology"
 	preferential        = "preferential"
 	vsphereConfigSecret = "vsphereConfigSecret"
 	snapshot            = "snapshot"
 	stable              = "stable"
-	newTests            = "newTests"
+	newTest             = "newTest"
 	multiVc             = "multiVc"
 	block               = "block"
 	file                = "file"
@@ -287,6 +290,7 @@ const (
 	semiAutomated       = "semiAutomated"
 	level2              = "level2"
 	level5              = "level5"
+	negative            = "negative"
 )
 
 // The following variables are required to know cluster type to run common e2e
@@ -297,6 +301,7 @@ var (
 	guestCluster         bool
 	rwxAccessMode        bool
 	wcpVsanDirectCluster bool
+	vcptocsi             bool
 )
 
 // For busybox pod image
@@ -417,5 +422,11 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	kind := os.Getenv("ACCESS_MODE")
 	if strings.TrimSpace(string(kind)) == "RWX" {
 		rwxAccessMode = true
+	}
+
+	// Check if its the vcptocsi tesbed
+	mode := os.Getenv("VCPTOCSI")
+	if strings.TrimSpace(string(mode)) == "1" {
+		vcptocsi = true
 	}
 }
